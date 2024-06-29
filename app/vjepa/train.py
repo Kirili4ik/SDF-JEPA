@@ -136,7 +136,6 @@ def visualize_sdf_with_mask(one_clip, original_mask, save_name=False):
     
     torch.save(original_mask, 'original_mask.pt')
     torch.save(one_clip, 'one_clip.pt')
-    assert False
 
     one_clip[original_mask == 0] = 1e6
     
@@ -487,21 +486,21 @@ def main(args, resume_preempt=False):
                 
                 ### START VISUALIZATION
                 
-                for C in range(batch_size):
+                ### for speedup reasons
+                '''for C in range(batch_size):
                     one_clip = clips[C].permute(1, 2, 3, 0).squeeze()
                     original_mask = create_mask_for_original_tensor(whole_mask_for_vis[C], one_clip.shape, tubelet_size, patch_size)
                     no_mask = torch.ones_like(original_mask)
                     og_mesh_name, masked_mesh_name = 'og_mesh.obj', 'masked_mesh.obj'
-                    # og_mesh = visualize_sdf_with_mask(one_clip, no_mask, og_mesh_name)
+                    og_mesh = visualize_sdf_with_mask(one_clip, no_mask, og_mesh_name)
                     masked_mesh = visualize_sdf_with_mask(one_clip, original_mask, masked_mesh_name)
-                    if og_mesh == 1 or masked_mesh == 1:
-                        visualization_errors_num += 1
-                    else:   
-                        wandb.log({
-                            "output_mesh":wandb.Object3D(open(og_mesh_name)),
-                            "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
-                            "input_mesh":wandb.Object3D(open(obj_names[C]))
-                        })
+                    
+                    wandb.log({
+                        "output_mesh":wandb.Object3D(open(og_mesh_name)),
+                        "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
+                        "input_mesh":wandb.Object3D(open(obj_names[C]))
+                    })
+                '''
                 
                 ### END VISUALIZATION
 

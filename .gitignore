@@ -6,3 +6,8 @@ logs_n_checkpoints/*
 tensors*.pth
 20bn*
 .DS_Store*
+
+videos/
+TEMPORARY_LOGS/
+
+.vscode/
