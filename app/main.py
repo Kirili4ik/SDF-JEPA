@@ -15,6 +15,7 @@ import wandb
 
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed
+import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -73,6 +74,8 @@ def process_main(rank, fname, world_size, devices):
 
 
 if __name__ == '__main__':
+
+    os.environ['NUMEXPR_MAX_THREADS'] = '8'
     args = parser.parse_args()
     num_gpus = len(args.devices)
     
@@ -82,3 +85,5 @@ if __name__ == '__main__':
             target=process_main,
             args=(rank, args.fname, num_gpus, args.devices)
         ).start()
+
+    # process_main(0, args.fname, num_gpus, args.devices)
