@@ -236,6 +236,8 @@ def main(args, resume_preempt=False):
     decode_one_clip = cfgs_data.get('decode_one_clip', True)
     log_resource_util_data = cfgs_data.get('log_resource_utilization', False)
 
+    dataset_eval_paths = cfgs_data.get('datasets_eval', [])
+
     # -- DATA AUGS
     cfgs_data_aug = args.get('data_aug')
     ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [3/4, 4/3])
@@ -269,7 +271,6 @@ def main(args, resume_preempt=False):
     cfgs_logging = args.get('logging')
     folder = cfgs_logging.get('folder')
     tag = cfgs_logging.get('write_tag')
-    visualization_errors_num = 0
 
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
@@ -385,6 +386,29 @@ def main(args, resume_preempt=False):
          pin_mem=pin_mem,
          rank=rank,
          log_dir=folder if log_resource_util_data else None)
+    
+    (unsupervised_loader_eval,
+     unsupervised_sampler_eval) = init_data(
+         data=dataset_type,
+         root_path=dataset_eval_paths,
+         batch_size=batch_size,
+         training=False,
+         clip_len=num_frames,
+         frame_sample_rate=sampling_rate,
+         filter_short_videos=filter_short_videos,
+         decode_one_clip=decode_one_clip,
+         duration=duration,
+         num_clips=num_clips,
+         transform=transform,
+         datasets_weights=datasets_weights,
+         collator=mask_collator,
+         num_workers=num_workers,
+         world_size=world_size,
+         pin_mem=pin_mem,
+         rank=rank,
+         log_dir=folder if log_resource_util_data else None)
+    
+
     try:
         _dlen = len(unsupervised_loader)
     except Exception:  # Different interface for webdataset
@@ -465,6 +489,8 @@ def main(args, resume_preempt=False):
     logger.info('Initializing loader...')
     loader = iter(unsupervised_loader)
 
+    loader_eval = iter(unsupervised_loader_eval)
+
     if skip_batches > 0:
         logger.info(f'Skip {skip_batches} batches')
         unsupervised_sampler.set_epoch(start_epoch)
@@ -505,7 +531,17 @@ def main(args, resume_preempt=False):
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 
-            def load_clips(visualization_errors_num):
+            try:
+                udata_eval, masks_enc_eval, masks_pred_eval, whole_mask_for_vis_eval = next(loader_eval)
+            except Exception:
+                logger.info('Exhausted data loaders. Refreshing...')
+                loader_eval = iter(unsupervised_loader_eval)
+                udata_eval, masks_enc_eval, masks_pred_eval, whole_mask_for_vis_eval = next(loader_eval)
+            
+            assert len(masks_enc_eval) == len(masks_pred_eval), \
+                'Currently require num encoder masks = num predictor masks'
+
+            def load_clips(udata, masks_enc, masks_pred, whole_mask_for_vis, visualise=False):
                 # -- unsupervised video clips
                 # Put each clip on the GPU and concatenate along batch
                 # dimension
@@ -513,47 +549,31 @@ def main(args, resume_preempt=False):
                 obj_names = [u for u in udata[-1]]
                 
                 ### START VISUALIZATION
-                
-                ### for speedup reasons
-                '''for C in range(batch_size):
-                    one_clip = clips[C].permute(1, 2, 3, 0).squeeze()
-                    original_mask = create_mask_for_original_tensor(whole_mask_for_vis[C], one_clip.shape, tubelet_size, patch_size)
-                    no_mask = torch.ones_like(original_mask)
-                    og_mesh_name, masked_mesh_name = 'og_mesh.obj', 'masked_mesh.obj'
-                    og_mesh = visualize_sdf_with_mask(one_clip, no_mask, og_mesh_name)
-                    masked_mesh = visualize_sdf_with_mask(one_clip, original_mask, masked_mesh_name)
-                    
-                    wandb.log({
-                        "output_mesh":wandb.Object3D(open(og_mesh_name)),
-                        "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
-                        "input_mesh":wandb.Object3D(open(obj_names[C]))
-                    })
-                '''
+                if visualise:
+                    for C in range(batch_size):
+                        one_clip = clips[C].permute(1, 2, 3, 0).squeeze()
+                        original_mask = create_mask_for_original_tensor(whole_mask_for_vis[C], one_clip.shape, tubelet_size, patch_size)
+                        # no_mask = torch.ones_like(original_mask)
+                        og_mesh_name, masked_mesh_name = 'og_mesh.obj', 'masked_mesh.obj'
+                        
+                        mask_sdf = get_mask_sdf(original_mask)
 
-                for C in range(batch_size):
-                    one_clip = clips[C].permute(1, 2, 3, 0).squeeze()
-                    original_mask = create_mask_for_original_tensor(whole_mask_for_vis[C], one_clip.shape, tubelet_size, patch_size)
-                    # no_mask = torch.ones_like(original_mask)
-                    og_mesh_name, masked_mesh_name = 'og_mesh.obj', 'masked_mesh.obj'
-                    
-                    mask_sdf = get_mask_sdf(original_mask)
+                        obj_mesh = sdf2mesh(one_clip.cpu().numpy(), level=0)
+                        obj_mesh.paint_uniform_color([0, 0.706, 1])
 
-                    obj_mesh = sdf2mesh(one_clip.cpu().numpy(), level=2 / one_clip.shape[0])
-                    obj_mesh.paint_uniform_color([0, 0.706, 1])
+                        mask_mesh = sdf2mesh(mask_sdf.cpu().numpy(), level=0)
+                        mask_mesh.paint_uniform_color([1, 0.706, 0])
 
-                    mask_mesh = sdf2mesh(mask_sdf.cpu().numpy(), level=0)
-                    mask_mesh.paint_uniform_color([1, 0.706, 0])
+                        o3d.io.write_triangle_mesh(og_mesh_name, obj_mesh)
+                        o3d.io.write_triangle_mesh(masked_mesh_name, obj_mesh + mask_mesh)
 
-                    o3d.io.write_triangle_mesh(og_mesh_name, obj_mesh)
-                    o3d.io.write_triangle_mesh(masked_mesh_name, obj_mesh + mask_mesh)
+                        wandb.log({
+                            "output_mesh":wandb.Object3D(open(og_mesh_name)),
+                            "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
+                            "input_mesh":wandb.Object3D(open(obj_names[C]))
+                        })
 
-                    wandb.log({
-                        "output_mesh":wandb.Object3D(open(og_mesh_name)),
-                        "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
-                        "input_mesh":wandb.Object3D(open(obj_names[C]))
-                    })
-
-                    break # Only one file
+                        break # Only one file
                 
                 ### END VISUALIZATION
 
@@ -571,14 +591,18 @@ def main(args, resume_preempt=False):
                     _masks_enc.append(_me)
                     _masks_pred.append(_mp)
 
-                return (clips, _masks_enc, _masks_pred, visualization_errors_num)
-            clips, masks_enc, masks_pred, visualization_errors_num = load_clips(visualization_errors_num)
+                return (clips, _masks_enc, _masks_pred)
+            
+            clips, masks_enc, masks_pred = load_clips(udata, masks_enc, masks_pred, whole_mask_for_vis, visualise=True)
+            clips_eval, masks_enc_eval, masks_pred_eval = load_clips(udata_eval, masks_enc_eval, masks_pred_eval, whole_mask_for_vis_eval, visualise=True)
             
             if not os.path.exists('tensors_sdf.pth'):
-                tensors = {'tensor1': clips,
-                           'tensor2': masks_enc,
-                           'tensor3': masks_pred
+                tensors = {
+                    'tensor1': clips,
+                    'tensor2': masks_enc,
+                    'tensor3': masks_pred
                 }
+
                 torch.save(tensors, 'tensors_sdf.pth')
 
             for _i, m in enumerate(mask_meters):
@@ -624,7 +648,7 @@ def main(args, resume_preempt=False):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
                 # Step 1. Forward
-                loss_jepa, loss_reg = 0., 0.
+                loss_jepa, loss_reg, loss_jepa_eval, loss_reg_eval = 0., 0., 0., 0.
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
                     z = forward_context(clips, h)
@@ -633,9 +657,22 @@ def main(args, resume_preempt=False):
                     
                     ### reg_coeff is always 0.0 SO IT IS NOT USED
                     pstd_z = reg_fn(z)  # predictor variance across patches
-                    loss_reg += torch.mean(F.relu(1.-pstd_z))
+                    loss_reg += torch.mean(F.relu(1. - pstd_z))
+        
                 ### reg_coeff is always 0.0 SO IT JUST loss_jepa
                 loss = loss_jepa + reg_coeff * loss_reg
+
+                with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision), torch.no_grad():
+                    h_eval = forward_target(clips_eval)
+                    z_eval = forward_context(clips_eval, h_eval)
+                    loss_jepa_eval = loss_fn(z_eval, h_eval)  # jepa prediction loss
+                    
+                    ### reg_coeff is always 0.0 SO IT IS NOT USED
+                    pstd_z_eval = reg_fn(z_eval)  # predictor variance across patches
+                    loss_reg_eval += torch.mean(F.relu(1. - pstd_z_eval))
+        
+                ### reg_coeff is always 0.0 SO IT JUST loss_jepa
+                loss_eval = loss_jepa_eval + reg_coeff * loss_reg_eval
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -669,13 +706,24 @@ def main(args, resume_preempt=False):
                     float(loss),
                     float(loss_jepa),
                     float(loss_reg),
+                    float(loss_eval),
+                    float(loss_jepa_eval),
+                    float(loss_reg_eval),
                     _new_lr,
                     _new_wd,
                     grad_stats,
                     grad_stats_pred,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            
+            (
+                loss, loss_jepa, loss_reg, 
+                loss_eval, loss_jepa_eval, loss_reg_eval, 
+                _new_lr, _new_wd, grad_stats, 
+                grad_stats_pred, optim_stats,
+            ), gpu_etime_ms = gpu_timer(train_step)
+            
+            
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
@@ -694,13 +742,15 @@ def main(args, resume_preempt=False):
                     wandb.log(
                         {
                             "loss": loss,
+                            "loss_eval": loss_eval,
                             "loss_jepa": loss_jepa,
+                            "loss_jepa_eval": loss_jepa_eval,
                             "loss_reg": loss_reg,
+                            "loss_reg_eval": loss_reg_eval,
                             "grad_stats.global_norm": grad_stats.global_norm,
                             "grad_stats_pred.global_norm": grad_stats_pred.global_norm,
                             "gpu_etime_ms": gpu_etime_ms,
                             "iter_elapsed_time_ms": iter_elapsed_time_ms,
-                            "visualization errors num": visualization_errors_num
                         }
                     )
                 
