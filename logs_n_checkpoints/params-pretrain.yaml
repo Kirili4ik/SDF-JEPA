@@ -1,16 +1,19 @@
 app: vjepa
 data:
-  batch_size: 4
+  batch_size: 32
   crop_size: 32
   dataset_type: SdfDataset
   datasets:
-  - /home/justwantpost/drive/ShapeNetCore.v2/paths_32.csv
+  - /home/justwantpost/drive/ShapeNetCore.v2/paths_32_train.csv
+  datasets_eval:
+  - /home/justwantpost/drive/ShapeNetCore.v2/paths_32_eval.csv
   num_clips: 1
   num_frames: 32
-  num_workers: 12
-  patch_size: 4
+  num_workers: 0
+  patch_size: 8
   pin_mem: true
-  tubelet_size: 2
+  tubelet_size: 32
+  visualise: false
 data_aug:
   auto_augment: false
   motion_shift: false
@@ -23,7 +26,7 @@ data_aug:
   reprob: 0.0
 logging:
   folder: /home/justwantpost/drive/jepa/logs_n_checkpoints/
-  write_tag: jepa_sdf
+  write_tag: jepa_sdf_no_augs
 loss:
   loss_exp: 1.0
   reg_coeff: 0.0
@@ -33,22 +36,10 @@ mask:
   - 1.5
   max_keep: null
   max_temporal_keep: 1.0
-  num_blocks: 8
+  num_blocks: 4
   spatial_scale:
   - 0.15
   - 0.15
-  temporal_scale:
-  - 1.0
-  - 1.0
-- aspect_ratio:
-  - 0.75
-  - 1.5
-  max_keep: null
-  max_temporal_keep: 1.0
-  num_blocks: 2
-  spatial_scale:
-  - 0.7
-  - 0.7
   temporal_scale:
   - 1.0
   - 1.0
@@ -73,13 +64,13 @@ optimization:
   ema:
   - 0.998
   - 1.0
-  epochs: 300
-  final_lr: 1.0e-06
+  epochs: 5
+  final_lr: 1.0e-05
   final_weight_decay: 0.4
   ipe: 300
   ipe_scale: 1.25
-  lr: 0.000625
-  start_lr: 0.0002
-  warmup: 40
+  lr: 0.0002
+  start_lr: 0.0001
+  warmup: 1
   weight_decay: 0.04
 tasks_per_node: 8
