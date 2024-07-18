@@ -111,9 +111,11 @@ class SdfDataset(torch.utils.data.Dataset):
         # Label/annotations
         label = self.labels[index]
 
-        # apply data augmentations
-        if self.transform is not None:
-            sdf_obj = self.transform(sdf_obj)
+        # # apply data augmentations
+        #if self.transform is not None:
+        #    sdf_obj = self.transform(sdf_obj)
+        sdf_obj = sdf_obj.squeeze().unsqueeze(0) #permute(3, 0, 1, 2)
+            
             
         name = self.names[index]
 

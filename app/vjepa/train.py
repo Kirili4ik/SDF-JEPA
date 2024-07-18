@@ -237,6 +237,7 @@ def main(args, resume_preempt=False):
     log_resource_util_data = cfgs_data.get('log_resource_utilization', False)
 
     dataset_eval_paths = cfgs_data.get('datasets_eval', [])
+    visualise = cfgs_data.get('visualise', False)
 
     # -- DATA AUGS
     cfgs_data_aug = args.get('data_aug')
@@ -568,9 +569,9 @@ def main(args, resume_preempt=False):
                         o3d.io.write_triangle_mesh(masked_mesh_name, obj_mesh + mask_mesh)
 
                         wandb.log({
-                            "output_mesh":wandb.Object3D(open(og_mesh_name)),
-                            "output_mesh_masked":wandb.Object3D(open(masked_mesh_name)),
-                            "input_mesh":wandb.Object3D(open(obj_names[C]))
+                            "output_mesh": wandb.Object3D(og_mesh_name),
+                            "output_mesh_masked": wandb.Object3D(masked_mesh_name),
+                            "input_mesh": wandb.Object3D(obj_names[C])
                         })
 
                         break # Only one file
@@ -593,8 +594,8 @@ def main(args, resume_preempt=False):
 
                 return (clips, _masks_enc, _masks_pred)
             
-            clips, masks_enc, masks_pred = load_clips(udata, masks_enc, masks_pred, whole_mask_for_vis, visualise=True)
-            clips_eval, masks_enc_eval, masks_pred_eval = load_clips(udata_eval, masks_enc_eval, masks_pred_eval, whole_mask_for_vis_eval, visualise=True)
+            clips, masks_enc, masks_pred = load_clips(udata, masks_enc, masks_pred, whole_mask_for_vis, visualise=visualise)
+            clips_eval, masks_enc_eval, masks_pred_eval = load_clips(udata_eval, masks_enc_eval, masks_pred_eval, whole_mask_for_vis_eval, visualise=visualise)
             
             if not os.path.exists('tensors_sdf.pth'):
                 tensors = {
