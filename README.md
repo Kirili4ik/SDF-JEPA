@@ -1,4 +1,6 @@
-# this is v-jepa modification for 3D objects in SDF format.
+# This is v-jepa modification for 3D objects in SDF format.
+
+The main contributions are sdf_dataset.py and the other files being able to work with SDF data format.
 
 
 ## V-JEPA: Video Joint Embedding Predictive Architecture
